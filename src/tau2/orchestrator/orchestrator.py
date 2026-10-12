@@ -13,12 +13,14 @@ from tau2.data_model.message import (
     AssistantMessage,
     Message,
     MultiToolMessage,
+    ToolCall,
     ToolMessage,
     UserMessage,
 )
 from tau2.data_model.simulation import SimulationRun, TerminationReason
 from tau2.data_model.tasks import EnvFunctionCall, InitializationData, Task
 from tau2.environment.environment import Environment, EnvironmentInfo
+from tau2.orchestrator.tool_call_executor import ToolCallExecutor
 from tau2.user.base import BaseUser, is_valid_user_history_message
 from tau2.user.user_simulator import DummyUser, UserSimulator, UserState
 from tau2.utils.llm_utils import get_cost
@@ -53,6 +55,7 @@ class Orchestrator:
         max_errors: int = 10,
         seed: Optional[int] = None,
         solo_mode: bool = False,
+        tool_call_executor: Optional[ToolCallExecutor] = None,
     ):
         self.domain = domain
         self.agent = agent
@@ -61,6 +64,7 @@ class Orchestrator:
         self.task = task
         self.seed = seed
         self.solo_mode = solo_mode
+        self.tool_call_executor = tool_call_executor
         self.agent_state: Optional[Any] = None
         self.user_state: Optional[UserState] = None
         self.trajectory: list[Message] = []
@@ -336,7 +340,7 @@ class Orchestrator:
                 raise ValueError("Agent or User should send tool call to environment")
             tool_msgs = []
             for tool_call in self.message.tool_calls:
-                tool_msg = self.environment.get_response(tool_call)
+                tool_msg = self._execute_live_tool_call(tool_call)
                 tool_msgs.append(tool_msg)
             assert len(self.message.tool_calls) == len(tool_msgs), (
                 "Number of tool calls and tool messages should be the same"
@@ -359,6 +363,21 @@ class Orchestrator:
             )
         self.step_count += 1
         self.environment.sync_tools()
+
+    def _execute_live_tool_call(self, tool_call: ToolCall) -> ToolMessage:
+        if self.tool_call_executor is None:
+            return self.environment.get_response(tool_call)
+        original_id = tool_call.id
+        original_requestor = tool_call.requestor
+        tool_message = self.tool_call_executor.execute(
+            deepcopy(tool_call),
+            self.environment.get_response,
+        )
+        if tool_message.id != original_id:
+            raise ValueError("ToolCallExecutor must preserve tool call id")
+        if tool_message.requestor != original_requestor:
+            raise ValueError("ToolCallExecutor must preserve tool call requestor")
+        return tool_message
 
     def get_trajectory(self) -> list[Message]:
         """

@@ -9,7 +9,8 @@ from deepdiff import DeepDiff
 from dotenv import load_dotenv
 from loguru import logger
 
-res = load_dotenv()
+SOURCE_DIR = Path(__file__).parents[3]
+res = load_dotenv(SOURCE_DIR / ".env")
 if not res:
     logger.warning("No .env file found")
 
@@ -22,7 +23,6 @@ if DATA_DIR_ENV:
     logger.info(f"Using data directory from environment: {DATA_DIR}")
 else:
     # Fallback to source directory (for development)
-    SOURCE_DIR = Path(__file__).parents[3]
     DATA_DIR = SOURCE_DIR / "data"
     logger.info(f"Using data directory from source: {DATA_DIR}")
 

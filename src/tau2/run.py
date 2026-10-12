@@ -3,6 +3,7 @@ import multiprocessing
 import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from collections.abc import Callable
 from typing import Optional
 
 from loguru import logger
@@ -21,11 +22,17 @@ from tau2.environment.environment import Environment, EnvironmentInfo
 from tau2.evaluator.evaluator import EvaluationType, evaluate_simulation
 from tau2.metrics.agent_metrics import compute_metrics
 from tau2.orchestrator.orchestrator import Orchestrator
+from tau2.orchestrator.tool_call_executor import (
+    ToolCallExecutor,
+    ToolCallExecutorFactory,
+)
 from tau2.registry import RegistryInfo, registry
 from tau2.user.user_simulator import DummyUser, get_global_user_sim_guidelines
 from tau2.utils.display import ConsoleDisplay, Text
 from tau2.utils.pydantic_utils import get_pydantic_hash
 from tau2.utils.utils import DATA_DIR, get_commit_hash, get_now, show_dict_diff
+
+AgentReportSink = Callable[[SimulationRun], None]
 
 
 def get_options() -> RegistryInfo:
@@ -93,7 +100,11 @@ def make_run_name(config: RunConfig) -> str:
     return f"{get_now()}_{config.domain}_{agent_name}_{user_name}"
 
 
-def run_domain(config: RunConfig) -> Results:
+def run_domain(
+    config: RunConfig,
+    tool_call_executor_factory: Optional[ToolCallExecutorFactory] = None,
+    agent_report_sink: Optional[AgentReportSink] = None,
+) -> Results:
     """
     Run simulations for a domain
     """
@@ -146,6 +157,8 @@ def run_domain(config: RunConfig) -> Results:
         max_concurrency=config.max_concurrency,
         seed=config.seed,
         log_level=config.log_level,
+        tool_call_executor_factory=tool_call_executor_factory,
+        agent_report_sink=agent_report_sink,
     )
     metrics = compute_metrics(simulation_results)
     ConsoleDisplay.display_agent_metrics(metrics)
@@ -171,6 +184,8 @@ def run_tasks(
     max_concurrency: int = 1,
     seed: Optional[int] = 300,
     log_level: Optional[str] = "INFO",
+    tool_call_executor_factory: Optional[ToolCallExecutorFactory] = None,
+    agent_report_sink: Optional[AgentReportSink] = None,
 ) -> Results:
     """
     Runs tasks for a given domain.
@@ -192,6 +207,10 @@ def run_tasks(
         max_concurrency (int): The maximum number of concurrent simulations to run.
         seed (int): The seed to use for the simulation.
         log_level (str): The log level to use.
+        tool_call_executor_factory (ToolCallExecutorFactory): Runtime-only factory
+            called once per task/trial simulation. It is not serialized into Results.
+        agent_report_sink (AgentReportSink): Runtime-only sink called with each
+            completed simulation after its trial number is assigned.
     Returns:
         The simulation results and the annotations (if llm_review is True).
     """
@@ -331,6 +350,11 @@ def run_tasks(
         )
         ConsoleDisplay.console.print(console_text)
         try:
+            tool_call_executor = (
+                tool_call_executor_factory()
+                if tool_call_executor_factory is not None
+                else None
+            )
             simulation = run_task(
                 domain=domain,
                 task=task,
@@ -344,8 +368,11 @@ def run_tasks(
                 max_errors=max_errors,
                 evaluation_type=evaluation_type,
                 seed=seed,
+                tool_call_executor=tool_call_executor,
             )
             simulation.trial = trial
+            if agent_report_sink is not None:
+                agent_report_sink(simulation)
             if console_display:
                 ConsoleDisplay.display_simulation(simulation, show_details=False)
             _save(simulation)
@@ -390,6 +417,7 @@ def run_task(
     max_errors: int = 10,
     evaluation_type: EvaluationType = EvaluationType.ALL,
     seed: Optional[int] = None,
+    tool_call_executor: Optional[ToolCallExecutor] = None,
 ) -> SimulationRun:
     """
     Runs tasks for a given domain.
@@ -408,6 +436,8 @@ def run_task(
          max_errors (int): The maximum number of errors to allow in the simulation.
          evaluation_type (EvaluationType): The type of evaluation to use.
          seed (int): The seed to use for the simulation.
+         tool_call_executor (ToolCallExecutor): Optional runtime-only wrapper for
+             live tool-call dispatch.
      Returns:
          The simulation run.
     """
@@ -483,6 +513,7 @@ def run_task(
         max_errors=max_errors,
         seed=seed,
         solo_mode=solo_mode,
+        tool_call_executor=tool_call_executor,
     )
     simulation = orchestrator.run()
 
