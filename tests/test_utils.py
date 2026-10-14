@@ -1,7 +1,17 @@
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
+
+from tau2.utils.utils import format_time
+
+
+def test_format_time_is_safe_for_cross_platform_filenames():
+    formatted = format_time(datetime(2026, 10, 14, 17, 44, 41, 323627))
+
+    assert formatted == "20261014_174441"
+    assert ":" not in formatted
 
 
 def test_data_dir_environment_variable():
