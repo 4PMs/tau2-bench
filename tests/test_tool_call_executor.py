@@ -97,6 +97,30 @@ def test_live_tool_call_is_wrapped_exactly_once(
     assert orchestrator.message.id == tool_call.id
 
 
+def test_empty_live_tool_call_id_is_generated_before_executor_and_trajectory(
+    domain_name: str,
+    get_environment: Callable[..., Environment],
+    base_task: Task,
+) -> None:
+    executor = RecordingExecutor()
+    orchestrator = make_orchestrator(domain_name, get_environment, base_task, executor)
+    tool_call = ToolCall(
+        id="", name="get_users", arguments={}, requestor="assistant"
+    )
+    arm_live_tool_step(orchestrator, [tool_call])
+
+    orchestrator.step()
+
+    assert tool_call.id
+    assert executor.calls[0].id == tool_call.id
+    assert isinstance(orchestrator.message, ToolMessage)
+    assert orchestrator.message.id == tool_call.id
+    trajectory_message = orchestrator.trajectory[-2]
+    assert isinstance(trajectory_message, AssistantMessage)
+    assert trajectory_message.tool_calls is not None
+    assert trajectory_message.tool_calls[0].id == tool_call.id
+
+
 def test_default_path_matches_environment_dispatch(
     domain_name: str,
     get_environment: Callable[..., Environment],

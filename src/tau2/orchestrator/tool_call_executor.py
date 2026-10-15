@@ -24,4 +24,4 @@ class ToolCallExecutor(Protocol):
         ...
 
 
-ToolCallExecutorFactory = Callable[[], ToolCallExecutor]
+ToolCallExecutorFactory = Callable[[str, int], ToolCallExecutor]

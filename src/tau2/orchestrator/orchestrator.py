@@ -365,6 +365,8 @@ class Orchestrator:
         self.environment.sync_tools()
 
     def _execute_live_tool_call(self, tool_call: ToolCall) -> ToolMessage:
+        if not tool_call.id:
+            tool_call.id = str(uuid.uuid4())
         if self.tool_call_executor is None:
             return self.environment.get_response(tool_call)
         original_id = tool_call.id

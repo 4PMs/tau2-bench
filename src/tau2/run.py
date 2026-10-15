@@ -351,7 +351,7 @@ def run_tasks(
         ConsoleDisplay.console.print(console_text)
         try:
             tool_call_executor = (
-                tool_call_executor_factory()
+                tool_call_executor_factory(task.id, trial)
                 if tool_call_executor_factory is not None
                 else None
             )

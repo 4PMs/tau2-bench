@@ -78,14 +78,14 @@ def test_run_tasks_creates_one_executor_per_task_trial(
 ) -> None:
     second_task = deepcopy(base_task)
     second_task.id = f"{base_task.id}-second"
-    created: list[object] = []
+    created: list[tuple[str, int, object]] = []
     received: list[object] = []
     lock = Lock()
 
-    def factory() -> object:
+    def factory(task_id: str, trial: int) -> object:
         executor = object()
         with lock:
-            created.append(executor)
+            created.append((task_id, trial, executor))
         return executor
 
     def fake_run_task(
@@ -113,7 +113,13 @@ def test_run_tasks_creates_one_executor_per_task_trial(
 
     assert len(created) == 4
     assert len(received) == 4
-    assert {id(executor) for executor in created} == {
+    assert {(task_id, trial) for task_id, trial, _ in created} == {
+        (base_task.id, 0),
+        (base_task.id, 1),
+        (second_task.id, 0),
+        (second_task.id, 1),
+    }
+    assert {id(executor) for _, _, executor in created} == {
         id(executor) for executor in received
     }
     assert len({id(executor) for executor in received}) == 4
@@ -223,7 +229,7 @@ def test_run_domain_forwards_runtime_factory(
         save_to=None,
     )
 
-    def factory() -> object:
+    def factory(task_id: str, trial: int) -> object:
         return object()
 
     reports: list[SimulationRun] = []
