@@ -213,6 +213,54 @@ def test_agent_report_sink_failure_aborts_batch(
         )
 
 
+def test_resumed_simulation_does_not_create_runtime_or_emit_report(
+    domain_name: str,
+    base_task: Task,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    def fake_run_task(*, task: Task, seed: int, **_: Any) -> SimulationRun:
+        simulation = make_simulation(task.id)
+        simulation.seed = seed
+        return simulation
+
+    monkeypatch.setattr("tau2.run.run_task", fake_run_task)
+    save_to = tmp_path / "resume.json"
+    common = {
+        "domain": domain_name,
+        "tasks": [base_task],
+        "agent": "llm_agent",
+        "user": "user_simulator",
+        "llm_args_agent": {},
+        "llm_args_user": {},
+        "console_display": False,
+        "evaluation_type": EvaluationType.ENV,
+        "save_to": save_to,
+        "seed": 300,
+    }
+    run_tasks(**common)
+    monkeypatch.setattr(
+        "tau2.run.ConsoleDisplay.console.input",
+        lambda *_args, **_kwargs: "y",
+    )
+    created: list[tuple[str, int]] = []
+    reports: list[SimulationRun] = []
+
+    def factory(task_id: str, trial: int) -> Any:
+        created.append((task_id, trial))
+        return object()
+
+    resumed = run_tasks(
+        **common,
+        tool_call_executor_factory=factory,
+        agent_report_sink=reports.append,
+    )
+
+    assert len(resumed.simulations) == 1
+    assert created == []
+    assert reports == []
+
+
 def test_run_domain_forwards_runtime_factory(
     base_task: Task,
     monkeypatch: pytest.MonkeyPatch,
